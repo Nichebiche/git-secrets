@@ -1,0 +1,73 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: "Create a LAMP stack using a single EC2 instance and a local MySQL database for storage. This template demonstrates using the AWS CloudFormation bootstrap scripts to install the packages and files necessary to deploy the Apache web server, PHP, and MySQL when the instance is launched."
+
+Resources:
+  LampInstance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      InstanceType: t2.micro
+      SecurityGroups:
+        - !Ref LampSecurityGroup
+      KeyName: !Ref KeyName
+      ImageId: ami-0c55b159cbfafe1f0
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y httpd mariadb-server php php-mysqlnd
+          systemctl start httpd
+          systemctl enable httpd
+          systemctl start mariadb
+          systemctl enable mariadb
+          mysql_secure_installation
+          echo "<?php phpinfo(); ?>" > /var/www/html/info.php
+
+  LampSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enable HTTP and HTTPS access
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  LampInstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Roles:
+        - !Ref LampInstanceRole
+
+  LampInstanceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LampInstancePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:Describe*
+                  - s3:ListBucket
+                Resource: '*'
+
+Outputs:
+  InstancePublicIP:
+    Description: Public IP address of the newly created EC2 instance
+    Value: !GetAtt LampInstance.PublicIp
+
+  WebsiteURL:
+    Description: URL of the PHP info page
+    Value: !Sub 'http://${LampInstance.PublicIp}/info.php'
